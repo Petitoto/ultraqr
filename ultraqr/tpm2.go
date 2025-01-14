@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"os"
 
 	"github.com/google/go-tpm/tpm2"
@@ -71,10 +72,10 @@ func createKey(tpm transport.TPMCloser) {
 	if err != nil {
 		logrus.Fatal(err)
 	}
-	
+
 	priv = key.OutPrivate.Buffer
 	pub = key.OutPublic.Bytes()
-	
+
 	var fpriv, fpub *os.File
 	if err := os.MkdirAll(KEYS_PATH, os.ModeDir); err != nil {
 		logrus.Fatal(err)
@@ -109,7 +110,7 @@ func loadKey(tpm transport.TPMCloser) (tpm2.TPMHandle) {
 	if pub, err = os.ReadFile(KEYS_PATH + "key.pub"); err != nil {
 		logrus.Fatal(err)
 	}
-	
+
 	srk := getSRK(tpm)
 	key, err := tpm2.Load{
 		ParentHandle: srk,
@@ -121,7 +122,7 @@ func loadKey(tpm transport.TPMCloser) (tpm2.TPMHandle) {
 	if err != nil {
 		logrus.Fatal(err)
 	}
-	
+
 	return key.ObjectHandle
 }
 
@@ -130,12 +131,19 @@ func loadKey(tpm transport.TPMCloser) (tpm2.TPMHandle) {
 	the loaded public key.
 */
 func getPubCert(tpm transport.TPMCloser, hkey tpm2.TPMHandle) (string) {
-	
+	cert, err := tpm2.ReadPublic{
+		ObjectHandle: hkey,
+	}.Execute(tpm)
+	if err != nil {
+		logrus.Fatal(err)
+	}
+
+	return base64.StdEncoding.EncodeToString(cert.OutPublic.Bytes())
 }
 
 /*
 	Sign binary data using the loaded signing key.
 */
 func signData(tpm transport.TPMCloser, data []byte, hkey tpm2.TPMHandle) ([]byte) {
-	
+
 }
