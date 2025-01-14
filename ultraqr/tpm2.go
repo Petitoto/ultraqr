@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
 	"github.com/google/go-tpm/tpmutil"
@@ -48,8 +50,49 @@ func getSRK(tpm transport.TPMCloser) (tpm2.TPMHandle) {
 	and store its public and (sealed) private parts
 	into two files. Overwrite existing files.
 */
-func createKey(tpm transport.TPMCloser, pcr string) {
+func createKey(tpm transport.TPMCloser) {
+	var priv, pub []byte
+	srk := getSRK(tpm)
+	key, err := tpm2.Create{
+		ParentHandle: srk,
+		InPublic: tpm2.New2B(tpm2.TPMTPublic{
+			Type:    tpm2.TPMAlgECC,
+			NameAlg: tpm2.TPMAlgSHA256,
+		}),
+		CreationPCR: tpm2.TPMLPCRSelection{
+			PCRSelections: []tpm2.TPMSPCRSelection{
+				{
+					Hash:      tpm2.TPMAlgSHA256,
+					PCRSelect: tpm2.PCClientCompatible.PCRs(0,2,4,8,9),
+				},
+			},
+		},
+	}.Execute(tpm)
+	if err != nil {
+		logrus.Fatal(err)
+	}
 	
+	priv = key.OutPrivate.Buffer
+	pub = key.OutPublic.Bytes()
+	
+	var fpriv, fpub *os.File
+	if err := os.MkdirAll(KEYS_PATH, os.ModeDir); err != nil {
+		logrus.Fatal(err)
+	}
+	if fpriv, err = os.OpenFile(KEYS_PATH + "key.priv", os.O_WRONLY | os.O_CREATE | os.O_TRUNC, 0600); err != nil {
+		logrus.Fatal(err)
+	}
+	defer fpriv.Close()
+	if fpub, err = os.OpenFile(KEYS_PATH + "key.pub", os.O_WRONLY | os.O_CREATE | os.O_TRUNC, 0600); err != nil {
+		logrus.Fatal(err)
+	}
+	defer fpub.Close()
+	if _, err = fpriv.Write(priv); err != nil {
+		logrus.Fatal(err)
+	}
+	if _, err = fpub.Write(pub); err != nil {
+		logrus.Fatal(err)
+	}
 }
 
 /*

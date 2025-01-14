@@ -16,7 +16,6 @@ var (
 	initialize = flag.Bool("init", false, "Initialize UltraQR with a new signing key")
 	enroll     = flag.Bool("enroll", false, "Enroll a new verifier device")
 	verify     = flag.Bool("verify", false, "Verify measured boot state")
-	pcr        = flag.String("pcr", "0,2,4,8,9", "TPM PCRs to seal the key at initialization")
 	verbose    = flag.Bool("verbose", false, "Use verbose logging")
 )
 
@@ -33,7 +32,7 @@ func main() {
 
 	if *initialize {
 		logrus.Info("Generating a new signing key")
-		createKey(tpm, *pcr)
+		createKey(tpm)
 		logrus.Info("New key generated and sealed to the TPM!")
 
 	} else if *enroll {
