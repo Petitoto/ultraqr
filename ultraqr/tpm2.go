@@ -100,21 +100,42 @@ func createKey(tpm transport.TPMCloser) {
 	public and private key files.
 	Return a handle to the loaded key.
 */
-func loadKey(tpm transport.TPMCloser) (int) {
+func loadKey(tpm transport.TPMCloser) (tpm2.TPMHandle) {
+	var priv, pub []byte
+	var err error
+	if priv, err = os.ReadFile(KEYS_PATH + "key.priv"); err != nil {
+		logrus.Fatal(err)
+	}
+	if pub, err = os.ReadFile(KEYS_PATH + "key.pub"); err != nil {
+		logrus.Fatal(err)
+	}
 	
+	srk := getSRK(tpm)
+	key, err := tpm2.Load{
+		ParentHandle: srk,
+		InPublic: tpm2.BytesAs2B[tpm2.TPMTPublic](pub),
+		InPrivate: tpm2.TPM2BPrivate{
+			Buffer: priv,
+		},
+	}.Execute(tpm)
+	if err != nil {
+		logrus.Fatal(err)
+	}
+	
+	return key.ObjectHandle
 }
 
 /*
 	Get the PEM certificate associated to
 	the loaded public key.
 */
-func getPubCert(tpm transport.TPMCloser, hkey int) (string) {
+func getPubCert(tpm transport.TPMCloser, hkey tpm2.TPMHandle) (string) {
 	
 }
 
 /*
 	Sign binary data using the loaded signing key.
 */
-func signData(tpm transport.TPMCloser, data []byte, hkey int) ([]byte) {
+func signData(tpm transport.TPMCloser, data []byte, hkey tpm2.TPMHandle) ([]byte) {
 	
 }
