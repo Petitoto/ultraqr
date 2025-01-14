@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/asn1"
 	"encoding/base64"
+	"math/big"
 	"os"
 
 	"github.com/google/go-tpm/tpm2"
@@ -145,5 +147,29 @@ func getPubCert(tpm transport.TPMCloser, hkey tpm2.TPMHandle) (string) {
 	Sign binary data using the loaded signing key.
 */
 func signData(tpm transport.TPMCloser, data []byte, hkey tpm2.TPMHandle) ([]byte) {
+	sig, err := tpm2.Sign{
+		KeyHandle: hkey,
+		Digest: tpm2.TPM2BDigest{
+			Buffer: data,
+		},
+	}.Execute(tpm)
+	if err != nil {
+		logrus.Fatal(err)
+	}
 
+	ecsig, err := sig.Signature.Signature.ECDSA()
+	if err != nil {
+		logrus.Fatal(err)
+	}
+	r := new(big.Int).SetBytes(ecsig.SignatureR.Buffer)
+	s := new(big.Int).SetBytes(ecsig.SignatureS.Buffer)
+
+	signature, err := asn1.Marshal(struct {
+		R *big.Int
+		S *big.Int
+	}{R: r, S: s})
+	if err != nil {
+		logrus.Fatal(err)
+	}
+	return signature
 }
