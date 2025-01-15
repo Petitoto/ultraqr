@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/ecdsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/asn1"
 	"encoding/base64"
 	"math/big"
@@ -194,10 +196,9 @@ func (tpm *TPM) LoadKey() (tpm2.NamedHandle) {
 }
 
 /*
-	Get the PEM certificate associated to
-	the loaded public key.
+	Export the loaded public key to base64 DER format
 */
-func (tpm *TPM) GetPubCert(hkey tpm2.NamedHandle) (string) {
+func (tpm *TPM) GetPubKey(hkey tpm2.NamedHandle) (string) {
 	pub, err := tpm2.ReadPublic{
 		ObjectHandle: hkey.Handle,
 	}.Execute(tpm.t)
@@ -205,7 +206,35 @@ func (tpm *TPM) GetPubCert(hkey tpm2.NamedHandle) (string) {
 		Fatal(tpm, "Failed to read public part of the key", err)
 	}
 
-	cert := base64.StdEncoding.EncodeToString(pub.OutPublic.Bytes())
+	outPub, err := pub.OutPublic.Contents()
+	if err != nil {
+		Fatal(tpm, "Failed to get public key content", err)
+	}
+	ecDetail, err := outPub.Parameters.ECCDetail()
+	if err != nil {
+		Fatal(tpm, "Failed to get public key details", err)
+	}
+	crv, err := ecDetail.CurveID.Curve()
+	if err != nil {
+		Fatal(tpm, "Failed to get public key curve", err)
+	}
+	eccUnique, err := outPub.Unique.ECC()
+	if err != nil {
+		Fatal(tpm, "Failed to get public key parameters", err)
+	}
+
+	pubKey := &ecdsa.PublicKey{
+		Curve: crv,
+		X:     big.NewInt(0).SetBytes(eccUnique.X.Buffer),
+		Y:     big.NewInt(0).SetBytes(eccUnique.Y.Buffer),
+	}
+
+	pubKeyDER, err := x509.MarshalPKIXPublicKey(pubKey)
+	if err != nil {
+		Fatal(tpm, "Failed to convert public key to DER form", err)
+	}
+
+	cert := base64.StdEncoding.EncodeToString(pubKeyDER)
 	logrus.Debugf("Public certificate: %s", cert)
 	return cert
 }

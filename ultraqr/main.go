@@ -38,7 +38,7 @@ func main() {
 
 	} else if *enroll {
 		logrus.Info("Retrieving public key")
-		cert := tpm.GetPubCert(tpm.LoadKey())
+		cert := tpm.GetPubKey(tpm.LoadKey())
 
 		logrus.Info("Generating enrollment QR code")
 		qrcode := generateQRCode(cert)
