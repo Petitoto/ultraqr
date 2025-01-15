@@ -13,24 +13,38 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+type TPM struct {
+	device string
+	t transport.TPMCloser
+}
+
 /*
 	Open a TPM device connection
 */
-func openTPM(device string) (transport.TPMCloser) {
-	logrus.Debugf("Opening %s...", device)
+func OpenTPM(device string) (TPM) {
+	logrus.Debugf("TPM device: %s", device)
 	rwc, err := tpmutil.OpenTPM(device)
 	if err != nil {
 		logrus.Fatal(err)
 	}
-	return transport.FromReadWriteCloser(rwc)
+	tpm := TPM{device, transport.FromReadWriteCloser(rwc)}
+	return tpm
+}
+
+/*
+	Log errors, close the TPM connection and exit
+*/
+func Fatal(tpm TPM, details string, err error) {
+	tpm.Close()
+	logrus.Error(details)
+	logrus.Fatal(err)
 }
 
 /*
 	Close a TPM device connection
 */
-func closeTPM(tpm transport.TPMCloser) () {
-	logrus.Debug("Closing the TPM...")
-	transport.TPMCloser.Close(tpm)
+func (tpm TPM) Close() () {
+	transport.TPMCloser.Close(tpm.t)
 }
 
 /*
@@ -39,14 +53,13 @@ func closeTPM(tpm transport.TPMCloser) () {
 	Primary seeds ensure that the created SRK will always
 	be the same for same SRK template on the same TPM.
 */
-func getSRK(tpm transport.TPMCloser) (tpm2.AuthHandle) {
-	logrus.Debug("Creating primary SRK...")
+func (tpm TPM) GetSRK() (tpm2.AuthHandle) {
 	srk, err := tpm2.CreatePrimary{
 		PrimaryHandle: tpm2.TPMRHOwner,
 		InPublic:      tpm2.New2B(tpm2.ECCSRKTemplate),
-	}.Execute(tpm)
+	}.Execute(tpm.t)
 	if err != nil {
-		fatal(tpm, err)
+		Fatal(tpm, "Failed to create primary SRK", err)
 	}
 
 	return tpm2.AuthHandle{
@@ -62,11 +75,10 @@ func getSRK(tpm transport.TPMCloser) (tpm2.AuthHandle) {
 	and store its public and (sealed) private parts
 	into two files. Overwrite existing files.
 */
-func createKey(tpm transport.TPMCloser) {
+func (tpm TPM) CreateKey() {
 	var priv, pub []byte
-	srk := getSRK(tpm)
+	srk := tpm.GetSRK()
 
-	logrus.Debug("Creating a new key...")
 	key, err := tpm2.Create{
 		ParentHandle: srk,
 		InPublic: tpm2.New2B(tpm2.TPMTPublic{
@@ -103,32 +115,31 @@ func createKey(tpm transport.TPMCloser) {
 				},
 			},
 		},
-	}.Execute(tpm)
+	}.Execute(tpm.t)
 	if err != nil {
-		fatal(tpm, err)
+		Fatal(tpm, "Failed to create a new key", err)
 	}
 
-	logrus.Debug("Storing public and private part of the (sealed) key...")
 	priv = key.OutPrivate.Buffer
 	pub = key.OutPublic.Bytes()
 
 	var fpriv, fpub *os.File
 	if err := os.MkdirAll(KEYS_PATH, os.ModeDir); err != nil {
-		fatal(tpm, err)
+		Fatal(tpm, "Failed to create " + KEYS_PATH, err)
 	}
 	if fpriv, err = os.OpenFile(KEYS_PATH + "key.priv", os.O_WRONLY | os.O_CREATE | os.O_TRUNC, 0600); err != nil {
-		fatal(tpm, err)
+		Fatal(tpm, "Failed to open " + KEYS_PATH + "key.priv", err)
 	}
 	defer fpriv.Close()
 	if fpub, err = os.OpenFile(KEYS_PATH + "key.pub", os.O_WRONLY | os.O_CREATE | os.O_TRUNC, 0600); err != nil {
-		fatal(tpm, err)
+		Fatal(tpm, "Failed to open " + KEYS_PATH + "key.pub", err)
 	}
 	defer fpub.Close()
 	if _, err = fpriv.Write(priv); err != nil {
-		fatal(tpm, err)
+		Fatal(tpm, "Failed to write private key to storage", err)
 	}
 	if _, err = fpub.Write(pub); err != nil {
-		fatal(tpm, err)
+		Fatal(tpm, "Failed to write public key to storage", err)
 	}
 }
 
@@ -137,29 +148,27 @@ func createKey(tpm transport.TPMCloser) {
 	public and private key files.
 	Return a handle to the loaded key.
 */
-func loadKey(tpm transport.TPMCloser) (tpm2.NamedHandle) {
+func (tpm TPM) LoadKey() (tpm2.NamedHandle) {
 	var priv, pub []byte
 	var err error
 
-	logrus.Debug("Retrieving key from storage...")
 	if priv, err = os.ReadFile(KEYS_PATH + "key.priv"); err != nil {
-		fatal(tpm, err)
+		Fatal(tpm, "Failed to read private key from storage", err)
 	}
 	if pub, err = os.ReadFile(KEYS_PATH + "key.pub"); err != nil {
-		fatal(tpm, err)
+		Fatal(tpm, "Failed to read public key from storage", err)
 	}
 
-	logrus.Debug("Loading the key into TPM memory...")
-	srk := getSRK(tpm)
+	srk := tpm.GetSRK()
 	key, err := tpm2.Load{
 		ParentHandle: srk,
 		InPublic: tpm2.BytesAs2B[tpm2.TPMTPublic](pub),
 		InPrivate: tpm2.TPM2BPrivate{
 			Buffer: priv,
 		},
-	}.Execute(tpm)
+	}.Execute(tpm.t)
 	if err != nil {
-		fatal(tpm, err)
+		Fatal(tpm, "Failed to load the key", err)
 	}
 	
 
@@ -173,22 +182,23 @@ func loadKey(tpm transport.TPMCloser) (tpm2.NamedHandle) {
 	Get the PEM certificate associated to
 	the loaded public key.
 */
-func getPubCert(tpm transport.TPMCloser, hkey tpm2.NamedHandle) (string) {
-	logrus.Debug("Reading public part of the key...")
-	cert, err := tpm2.ReadPublic{
+func (tpm TPM) GetPubCert(hkey tpm2.NamedHandle) (string) {
+	pub, err := tpm2.ReadPublic{
 		ObjectHandle: hkey.Handle,
-	}.Execute(tpm)
+	}.Execute(tpm.t)
 	if err != nil {
-		fatal(tpm, err)
+		Fatal(tpm, "Failed to read public part of the key", err)
 	}
 
-	return base64.StdEncoding.EncodeToString(cert.OutPublic.Bytes())
+	cert := base64.StdEncoding.EncodeToString(pub.OutPublic.Bytes())
+	logrus.Debugf("Public certificate: %s", cert)
+	return cert
 }
 
 /*
 	Sign binary data using the loaded signing key.
 */
-func signData(tpm transport.TPMCloser, data []byte, hkey tpm2.NamedHandle) ([]byte) {
+func (tpm TPM) SignData(data []byte, hkey tpm2.NamedHandle) ([]byte) {
 	digest := sha256.Sum256(data)
 
 	logrus.Debugf("Hashed data: %x", digest)
@@ -197,15 +207,14 @@ func signData(tpm transport.TPMCloser, data []byte, hkey tpm2.NamedHandle) ([]by
 		Digest: tpm2.TPM2BDigest{
 			Buffer: digest[:],
 		},
-	}.Execute(tpm)
+	}.Execute(tpm.t)
 	if err != nil {
-		fatal(tpm, err)
+		Fatal(tpm, "Failed to sign data", err)
 	}
 
-	logrus.Debug("Parsing signed data...")
 	ecsig, err := sig.Signature.Signature.ECDSA()
 	if err != nil {
-		fatal(tpm, err)
+		Fatal(tpm, "Failed to parse signature", err)
 	}
 	r := new(big.Int).SetBytes(ecsig.SignatureR.Buffer)
 	s := new(big.Int).SetBytes(ecsig.SignatureS.Buffer)
@@ -215,15 +224,9 @@ func signData(tpm transport.TPMCloser, data []byte, hkey tpm2.NamedHandle) ([]by
 		S *big.Int
 	}{R: r, S: s})
 	if err != nil {
-		fatal(tpm, err)
+		Fatal(tpm, "Failed to format signature", err)
 	}
-	return signature
-}
 
-/*
-	Log errors, close the TPM connection and exit
-*/
-func fatal(tpm transport.TPMCloser, err error) {
-	closeTPM(tpm)
-	logrus.Fatal(err)
+	logrus.Debugf("Signature: %s", base64.StdEncoding.EncodeToString(signature))
+	return signature
 }

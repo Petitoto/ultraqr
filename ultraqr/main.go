@@ -28,18 +28,17 @@ func main() {
 		logrus.SetLevel(logrus.InfoLevel)
 	}
 	
-	tpm := openTPM(*device)
-	defer closeTPM(tpm)
+	tpm := OpenTPM(*device)
+	defer tpm.Close()
 
 	if *initialize {
 		logrus.Info("Generating a new signing key")
-		createKey(tpm)
+		tpm.CreateKey()
 		logrus.Info("New key generated and sealed to the TPM!")
 
 	} else if *enroll {
 		logrus.Info("Retrieving public key")
-		cert := getPubCert(tpm, loadKey(tpm))
-		logrus.Debug("Certificate: " + cert)
+		cert := tpm.GetPubCert(tpm.LoadKey())
 
 		logrus.Info("Generating enrollment QR code")
 		data := fmt.Sprintf("%x", cert)
@@ -48,14 +47,13 @@ func main() {
 
 	} else if *verify {
 		logrus.Info("Unsealing signing key")
-		key := loadKey(tpm)
+		key := tpm.LoadKey()
 
 		logrus.Info("Signing current timestamp")
 		timestamp := time.Now().Unix()
-		signature := signData(tpm, big.NewInt(timestamp).Bytes(), key)
+		signature := tpm.SignData(big.NewInt(timestamp).Bytes(), key)
 		data := fmt.Sprintf(`{"t":"%d","s":"%x"}`, timestamp,
 							base64.StdEncoding.EncodeToString(signature))
-		logrus.Debug("Signed data: " + data)
 
 		logrus.Info("Generating verification QR code")
 		qrcode := generateQRCode(data)

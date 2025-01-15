@@ -11,6 +11,7 @@ import (
 	text-art string.
 */
 func generateQRCode(data string) (string) {
+	logrus.Debugf("QR code data: %s", data)
 	qr, err := qrcode.New(data, qrcode.Low)
 	if err != nil {
 		logrus.Fatal(err)
