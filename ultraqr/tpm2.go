@@ -235,7 +235,7 @@ func (tpm *TPM) GetPubKey(hkey tpm2.NamedHandle) (string) {
 	}
 
 	cert := base64.StdEncoding.EncodeToString(pubKeyDER)
-	logrus.Debugf("Public certificate: %s", cert)
+	logrus.Debugf("Exported public key: %s", cert)
 	return cert
 }
 
