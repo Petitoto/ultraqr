@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/asn1"
 	"encoding/base64"
 	"math/big"
@@ -188,11 +189,13 @@ func getPubCert(tpm transport.TPMCloser, hkey tpm2.NamedHandle) (string) {
 	Sign binary data using the loaded signing key.
 */
 func signData(tpm transport.TPMCloser, data []byte, hkey tpm2.NamedHandle) ([]byte) {
-	logrus.Debug("Signing data...")
+	digest := sha256.Sum256(data)
+
+	logrus.Debugf("Hashed data: %x", digest)
 	sig, err := tpm2.Sign{
 		KeyHandle: hkey,
 		Digest: tpm2.TPM2BDigest{
-			Buffer: data,
+			Buffer: digest[:],
 		},
 	}.Execute(tpm)
 	if err != nil {
