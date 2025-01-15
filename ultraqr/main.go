@@ -17,6 +17,7 @@ var (
 	enroll     = flag.Bool("enroll", false, "Enroll a new verifier device")
 	verify     = flag.Bool("verify", false, "Verify measured boot state")
 	verbose    = flag.Bool("verbose", false, "Use verbose logging")
+	device     = flag.String("device", "/dev/tpm0", "Path to the TPM device to use")
 )
 
 func main() {
@@ -27,7 +28,7 @@ func main() {
 		logrus.SetLevel(logrus.InfoLevel)
 	}
 	
-	tpm := openTPM()
+	tpm := openTPM(*device)
 	defer closeTPM(tpm)
 
 	if *initialize {

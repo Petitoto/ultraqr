@@ -15,8 +15,9 @@ import (
 /*
 	Open a TPM device connection
 */
-func openTPM() (transport.TPMCloser) {
-	rwc, err := tpmutil.OpenTPM()
+func openTPM(device string) (transport.TPMCloser) {
+	logrus.Debugf("Opening %s...", device)
+	rwc, err := tpmutil.OpenTPM(device)
 	if err != nil {
 		logrus.Fatal(err)
 	}
@@ -27,6 +28,7 @@ func openTPM() (transport.TPMCloser) {
 	Close a TPM device connection
 */
 func closeTPM(tpm transport.TPMCloser) () {
+	logrus.Debug("Closing the TPM...")
 	transport.TPMCloser.Close(tpm)
 }
 
@@ -36,15 +38,21 @@ func closeTPM(tpm transport.TPMCloser) () {
 	Primary seeds ensure that the created SRK will always
 	be the same for same SRK template on the same TPM.
 */
-func getSRK(tpm transport.TPMCloser) (tpm2.TPMHandle) {
+func getSRK(tpm transport.TPMCloser) (tpm2.AuthHandle) {
+	logrus.Debug("Creating primary SRK...")
 	srk, err := tpm2.CreatePrimary{
 		PrimaryHandle: tpm2.TPMRHOwner,
 		InPublic:      tpm2.New2B(tpm2.ECCSRKTemplate),
 	}.Execute(tpm)
 	if err != nil {
-		logrus.Fatal(err)
+		fatal(tpm, err)
 	}
-	return srk.ObjectHandle
+
+	return tpm2.AuthHandle{
+		Handle: srk.ObjectHandle,
+		Name:   srk.Name,
+		Auth:   tpm2.PasswordAuth(nil),
+	}
 }
 
 /*
@@ -56,11 +64,35 @@ func getSRK(tpm transport.TPMCloser) (tpm2.TPMHandle) {
 func createKey(tpm transport.TPMCloser) {
 	var priv, pub []byte
 	srk := getSRK(tpm)
+
+	logrus.Debug("Creating a new key...")
 	key, err := tpm2.Create{
 		ParentHandle: srk,
 		InPublic: tpm2.New2B(tpm2.TPMTPublic{
 			Type:    tpm2.TPMAlgECC,
 			NameAlg: tpm2.TPMAlgSHA256,
+			ObjectAttributes: tpm2.TPMAObject{
+				FixedTPM:            true,
+				FixedParent:         true,
+				SensitiveDataOrigin: true,
+				UserWithAuth:        true,
+				SignEncrypt:         true,
+			},
+			Parameters: tpm2.NewTPMUPublicParms(
+				tpm2.TPMAlgECC,
+				&tpm2.TPMSECCParms{
+					CurveID: tpm2.TPMECCNistP256,
+					Scheme: tpm2.TPMTECCScheme{
+						Scheme: tpm2.TPMAlgECDSA,
+						Details: tpm2.NewTPMUAsymScheme(
+							tpm2.TPMAlgECDSA,
+							&tpm2.TPMSSigSchemeECDSA{
+								HashAlg: tpm2.TPMAlgSHA256,
+							},
+						),
+					},
+				},
+			),
 		}),
 		CreationPCR: tpm2.TPMLPCRSelection{
 			PCRSelections: []tpm2.TPMSPCRSelection{
@@ -72,29 +104,30 @@ func createKey(tpm transport.TPMCloser) {
 		},
 	}.Execute(tpm)
 	if err != nil {
-		logrus.Fatal(err)
+		fatal(tpm, err)
 	}
 
+	logrus.Debug("Storing public and private part of the (sealed) key...")
 	priv = key.OutPrivate.Buffer
 	pub = key.OutPublic.Bytes()
 
 	var fpriv, fpub *os.File
 	if err := os.MkdirAll(KEYS_PATH, os.ModeDir); err != nil {
-		logrus.Fatal(err)
+		fatal(tpm, err)
 	}
 	if fpriv, err = os.OpenFile(KEYS_PATH + "key.priv", os.O_WRONLY | os.O_CREATE | os.O_TRUNC, 0600); err != nil {
-		logrus.Fatal(err)
+		fatal(tpm, err)
 	}
 	defer fpriv.Close()
 	if fpub, err = os.OpenFile(KEYS_PATH + "key.pub", os.O_WRONLY | os.O_CREATE | os.O_TRUNC, 0600); err != nil {
-		logrus.Fatal(err)
+		fatal(tpm, err)
 	}
 	defer fpub.Close()
 	if _, err = fpriv.Write(priv); err != nil {
-		logrus.Fatal(err)
+		fatal(tpm, err)
 	}
 	if _, err = fpub.Write(pub); err != nil {
-		logrus.Fatal(err)
+		fatal(tpm, err)
 	}
 }
 
@@ -106,13 +139,16 @@ func createKey(tpm transport.TPMCloser) {
 func loadKey(tpm transport.TPMCloser) (tpm2.TPMHandle) {
 	var priv, pub []byte
 	var err error
+
+	logrus.Debug("Retrieving key from storage...")
 	if priv, err = os.ReadFile(KEYS_PATH + "key.priv"); err != nil {
-		logrus.Fatal(err)
+		fatal(tpm, err)
 	}
 	if pub, err = os.ReadFile(KEYS_PATH + "key.pub"); err != nil {
-		logrus.Fatal(err)
+		fatal(tpm, err)
 	}
 
+	logrus.Debug("Loading the key into TPM memory...")
 	srk := getSRK(tpm)
 	key, err := tpm2.Load{
 		ParentHandle: srk,
@@ -122,8 +158,9 @@ func loadKey(tpm transport.TPMCloser) (tpm2.TPMHandle) {
 		},
 	}.Execute(tpm)
 	if err != nil {
-		logrus.Fatal(err)
+		fatal(tpm, err)
 	}
+	
 
 	return key.ObjectHandle
 }
@@ -133,11 +170,12 @@ func loadKey(tpm transport.TPMCloser) (tpm2.TPMHandle) {
 	the loaded public key.
 */
 func getPubCert(tpm transport.TPMCloser, hkey tpm2.TPMHandle) (string) {
+	logrus.Debug("Reading public part of the key...")
 	cert, err := tpm2.ReadPublic{
 		ObjectHandle: hkey,
 	}.Execute(tpm)
 	if err != nil {
-		logrus.Fatal(err)
+		fatal(tpm, err)
 	}
 
 	return base64.StdEncoding.EncodeToString(cert.OutPublic.Bytes())
@@ -147,6 +185,7 @@ func getPubCert(tpm transport.TPMCloser, hkey tpm2.TPMHandle) (string) {
 	Sign binary data using the loaded signing key.
 */
 func signData(tpm transport.TPMCloser, data []byte, hkey tpm2.TPMHandle) ([]byte) {
+	logrus.Debug("Signing data...")
 	sig, err := tpm2.Sign{
 		KeyHandle: hkey,
 		Digest: tpm2.TPM2BDigest{
@@ -154,12 +193,13 @@ func signData(tpm transport.TPMCloser, data []byte, hkey tpm2.TPMHandle) ([]byte
 		},
 	}.Execute(tpm)
 	if err != nil {
-		logrus.Fatal(err)
+		fatal(tpm, err)
 	}
 
+	logrus.Debug("Parsing signed data...")
 	ecsig, err := sig.Signature.Signature.ECDSA()
 	if err != nil {
-		logrus.Fatal(err)
+		fatal(tpm, err)
 	}
 	r := new(big.Int).SetBytes(ecsig.SignatureR.Buffer)
 	s := new(big.Int).SetBytes(ecsig.SignatureS.Buffer)
@@ -169,7 +209,15 @@ func signData(tpm transport.TPMCloser, data []byte, hkey tpm2.TPMHandle) ([]byte
 		S *big.Int
 	}{R: r, S: s})
 	if err != nil {
-		logrus.Fatal(err)
+		fatal(tpm, err)
 	}
 	return signature
+}
+
+/*
+	Log errors, close the TPM connection and exit
+*/
+func fatal(tpm transport.TPMCloser, err error) {
+	closeTPM(tpm)
+	logrus.Fatal(err)
 }
