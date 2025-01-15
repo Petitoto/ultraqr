@@ -1,3 +1,5 @@
+<p align="center"><img height=150px src="res/ultraqr.png"/></p>
+
 # UltraQR
 UltraQR (User-friendly Lightweight TPM Remote Attestation over QR code) is a solution that enables individual users to attest TPM PCR values using their mobile phones. Its primary goal is to verify the bootchain state of a potentially compromised host from a trusted host simply by scanning a QR code.
 
