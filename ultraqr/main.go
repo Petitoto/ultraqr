@@ -41,8 +41,7 @@ func main() {
 		cert := tpm.GetPubCert(tpm.LoadKey())
 
 		logrus.Info("Generating enrollment QR code")
-		data := fmt.Sprintf("%x", cert)
-		qrcode := generateQRCode(data)
+		qrcode := generateQRCode(cert)
 		fmt.Print(qrcode)
 
 	} else if *verify {
@@ -52,7 +51,7 @@ func main() {
 		logrus.Info("Signing current timestamp")
 		timestamp := time.Now().Unix()
 		signature := tpm.SignData(big.NewInt(timestamp).Bytes(), key)
-		data := fmt.Sprintf(`{"t":"%d","s":"%x"}`, timestamp,
+		data := fmt.Sprintf(`{"t":"%d","s":"%s"}`, timestamp,
 							base64.StdEncoding.EncodeToString(signature))
 
 		logrus.Info("Generating verification QR code")
