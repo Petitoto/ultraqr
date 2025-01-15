@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">UltraQR</string>
+    <string name="last_attestation">Last attestation:</string>
+</resources>
