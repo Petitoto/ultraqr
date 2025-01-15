@@ -14,8 +14,9 @@ import (
 )
 
 type TPM struct {
-	device string
-	t transport.TPMCloser
+	device string             // path to the TPM device
+	t transport.TPMCloser     // connection to the TPM
+	handles []tpm2.TPMHandle  // handles to flush when closing the connection
 }
 
 /*
@@ -27,24 +28,34 @@ func OpenTPM(device string) (TPM) {
 	if err != nil {
 		logrus.Fatal(err)
 	}
-	tpm := TPM{device, transport.FromReadWriteCloser(rwc)}
+	tpm := TPM{device, transport.FromReadWriteCloser(rwc), []tpm2.TPMHandle{}}
 	return tpm
 }
 
 /*
 	Log errors, close the TPM connection and exit
 */
-func Fatal(tpm TPM, details string, err error) {
-	tpm.Close()
+func Fatal(tpm *TPM, details string, err error) {
 	logrus.Error(details)
-	logrus.Fatal(err)
+	logrus.Error(err)
+	tpm.Close()
+	os.Exit(1)
 }
 
 /*
 	Close a TPM device connection
 */
-func (tpm TPM) Close() () {
+func (tpm *TPM) Close() () {
+	for _, handle := range tpm.handles {
+		_, err := tpm2.FlushContext{FlushHandle: handle}.Execute(tpm.t)
+		if err != nil {
+			logrus.Errorf("Failed to flush handle 0x%x", handle)
+		} else {
+			logrus.Debugf("Flushed handle 0x%x", handle)
+		}
+	}
 	transport.TPMCloser.Close(tpm.t)
+	logrus.Debugf("Closed TPM device %s", tpm.device)
 }
 
 /*
@@ -53,7 +64,7 @@ func (tpm TPM) Close() () {
 	Primary seeds ensure that the created SRK will always
 	be the same for same SRK template on the same TPM.
 */
-func (tpm TPM) GetSRK() (tpm2.AuthHandle) {
+func (tpm *TPM) GetSRK() (tpm2.AuthHandle) {
 	srk, err := tpm2.CreatePrimary{
 		PrimaryHandle: tpm2.TPMRHOwner,
 		InPublic:      tpm2.New2B(tpm2.ECCSRKTemplate),
@@ -62,6 +73,8 @@ func (tpm TPM) GetSRK() (tpm2.AuthHandle) {
 		Fatal(tpm, "Failed to create primary SRK", err)
 	}
 
+	logrus.Debugf("Loaded primary SRK at 0x%x", srk.ObjectHandle)
+	tpm.handles = append(tpm.handles, srk.ObjectHandle)
 	return tpm2.AuthHandle{
 		Handle: srk.ObjectHandle,
 		Name:   srk.Name,
@@ -75,7 +88,7 @@ func (tpm TPM) GetSRK() (tpm2.AuthHandle) {
 	and store its public and (sealed) private parts
 	into two files. Overwrite existing files.
 */
-func (tpm TPM) CreateKey() {
+func (tpm *TPM) CreateKey() {
 	var priv, pub []byte
 	srk := tpm.GetSRK()
 
@@ -141,6 +154,7 @@ func (tpm TPM) CreateKey() {
 	if _, err = fpub.Write(pub); err != nil {
 		Fatal(tpm, "Failed to write public key to storage", err)
 	}
+	logrus.Debugf("Stored key in %s", KEYS_PATH)
 }
 
 /*
@@ -148,7 +162,7 @@ func (tpm TPM) CreateKey() {
 	public and private key files.
 	Return a handle to the loaded key.
 */
-func (tpm TPM) LoadKey() (tpm2.NamedHandle) {
+func (tpm *TPM) LoadKey() (tpm2.NamedHandle) {
 	var priv, pub []byte
 	var err error
 
@@ -170,8 +184,9 @@ func (tpm TPM) LoadKey() (tpm2.NamedHandle) {
 	if err != nil {
 		Fatal(tpm, "Failed to load the key", err)
 	}
-	
 
+	logrus.Debugf("Loaded key at 0x%x", key.ObjectHandle)
+	tpm.handles = append(tpm.handles, key.ObjectHandle)	
 	return tpm2.NamedHandle{
 		Handle: key.ObjectHandle,
 		Name:   key.Name,
@@ -182,7 +197,7 @@ func (tpm TPM) LoadKey() (tpm2.NamedHandle) {
 	Get the PEM certificate associated to
 	the loaded public key.
 */
-func (tpm TPM) GetPubCert(hkey tpm2.NamedHandle) (string) {
+func (tpm *TPM) GetPubCert(hkey tpm2.NamedHandle) (string) {
 	pub, err := tpm2.ReadPublic{
 		ObjectHandle: hkey.Handle,
 	}.Execute(tpm.t)
@@ -198,7 +213,7 @@ func (tpm TPM) GetPubCert(hkey tpm2.NamedHandle) (string) {
 /*
 	Sign binary data using the loaded signing key.
 */
-func (tpm TPM) SignData(data []byte, hkey tpm2.NamedHandle) ([]byte) {
+func (tpm *TPM) SignData(data []byte, hkey tpm2.NamedHandle) ([]byte) {
 	digest := sha256.Sum256(data)
 
 	logrus.Debugf("Hashed data: %x", digest)
