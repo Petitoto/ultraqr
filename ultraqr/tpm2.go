@@ -207,6 +207,18 @@ func (tpm TPM) SignData(data []byte, hkey tpm2.NamedHandle) ([]byte) {
 		Digest: tpm2.TPM2BDigest{
 			Buffer: digest[:],
 		},
+		InScheme: tpm2.TPMTSigScheme{
+			Scheme: tpm2.TPMAlgECDSA,
+			Details: tpm2.NewTPMUSigScheme(
+				tpm2.TPMAlgECDSA,
+				&tpm2.TPMSSchemeHash{
+					HashAlg: tpm2.TPMAlgSHA256,
+				},
+			),
+		},
+		Validation: tpm2.TPMTTKHashCheck{
+			Tag: tpm2.TPMSTHashCheck,
+		},
 	}.Execute(tpm.t)
 	if err != nil {
 		Fatal(tpm, "Failed to sign data", err)
