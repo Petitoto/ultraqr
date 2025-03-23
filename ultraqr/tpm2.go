@@ -158,7 +158,7 @@ func (tpm *TPM) GetPCRAuth() (tpm2.Session) {
 	and store its public and private parts.
 	Overwrite existing files.
 */
-func (tpm *TPM) CreateKey() {
+func (tpm *TPM) CreateKey(key_path string) {
 	var priv, pub []byte
 	srk := tpm.GetSRK()
 
@@ -202,15 +202,15 @@ func (tpm *TPM) CreateKey() {
 	pub = key.OutPublic.Bytes()
 
 	var fpriv, fpub *os.File
-	if err := os.MkdirAll(KEYS_PATH, os.ModeDir); err != nil {
-		Fatal(tpm, "Failed to create " + KEYS_PATH, err)
+	if err := os.MkdirAll(key_path, os.ModeDir); err != nil {
+		Fatal(tpm, "Failed to create " + key_path, err)
 	}
-	if fpriv, err = os.OpenFile(KEYS_PATH + "key.priv", os.O_WRONLY | os.O_CREATE | os.O_TRUNC, 0600); err != nil {
-		Fatal(tpm, "Failed to open " + KEYS_PATH + "key.priv", err)
+	if fpriv, err = os.OpenFile(key_path + "/key.priv", os.O_WRONLY | os.O_CREATE | os.O_TRUNC, 0600); err != nil {
+		Fatal(tpm, "Failed to open " + key_path + "/key.priv", err)
 	}
 	defer fpriv.Close()
-	if fpub, err = os.OpenFile(KEYS_PATH + "key.pub", os.O_WRONLY | os.O_CREATE | os.O_TRUNC, 0600); err != nil {
-		Fatal(tpm, "Failed to open " + KEYS_PATH + "key.pub", err)
+	if fpub, err = os.OpenFile(key_path + "/key.pub", os.O_WRONLY | os.O_CREATE | os.O_TRUNC, 0600); err != nil {
+		Fatal(tpm, "Failed to open " + key_path + "/key.pub", err)
 	}
 	defer fpub.Close()
 	if _, err = fpriv.Write(priv); err != nil {
@@ -219,7 +219,7 @@ func (tpm *TPM) CreateKey() {
 	if _, err = fpub.Write(pub); err != nil {
 		Fatal(tpm, "Failed to write public key to storage", err)
 	}
-	logrus.Debugf("Stored key in %s", KEYS_PATH)
+	logrus.Debugf("Stored key in %s", key_path)
 }
 
 /*
@@ -227,14 +227,14 @@ func (tpm *TPM) CreateKey() {
 	Add an authorization session to the key to comply with the PCR policy.
 	Return a handle to the loaded key.
 */
-func (tpm *TPM) LoadKey() (tpm2.AuthHandle) {
+func (tpm *TPM) LoadKey(key_path string) (tpm2.AuthHandle) {
 	var priv, pub []byte
 	var err error
 
-	if priv, err = os.ReadFile(KEYS_PATH + "key.priv"); err != nil {
+	if priv, err = os.ReadFile(key_path + "/key.priv"); err != nil {
 		Fatal(tpm, "Failed to read private key from storage", err)
 	}
-	if pub, err = os.ReadFile(KEYS_PATH + "key.pub"); err != nil {
+	if pub, err = os.ReadFile(key_path + "/key.pub"); err != nil {
 		Fatal(tpm, "Failed to read public key from storage", err)
 	}
 

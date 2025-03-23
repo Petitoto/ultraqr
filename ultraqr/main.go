@@ -11,13 +11,13 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const KEYS_PATH = "/etc/ultraqr/"
 var (
 	initialize = flag.Bool("init", false, "Initialize UltraQR with a new signing key")
 	enroll     = flag.Bool("enroll", false, "Enroll a new verifier device")
 	verify     = flag.Bool("verify", false, "Verify measured boot state")
 	verbose    = flag.Bool("verbose", false, "Use verbose logging")
 	device     = flag.String("device", "/dev/tpm0", "Path to the TPM device to use")
+	key_path   = flag.String("key", "/etc/ultraqr", "Path to store the signing key public and private TPM parts")
 )
 
 func main() {
@@ -33,12 +33,12 @@ func main() {
 
 	if *initialize {
 		logrus.Info("Generating a new signing key")
-		tpm.CreateKey()
+		tpm.CreateKey(*key_path)
 		logrus.Info("New key generated and sealed to the TPM!")
 
 	} else if *enroll {
 		logrus.Info("Retrieving public key")
-		cert := tpm.GetPubKey(tpm.LoadKey())
+		cert := tpm.GetPubKey(tpm.LoadKey(*key_path))
 
 		logrus.Info("Generating enrollment QR code")
 		qrcode := generateQRCode(cert)
@@ -46,7 +46,7 @@ func main() {
 
 	} else if *verify {
 		logrus.Info("Unsealing signing key")
-		key := tpm.LoadKey()
+		key := tpm.LoadKey(*key_path)
 
 		logrus.Info("Signing current timestamp")
 		timestamp := time.Now().Unix()
