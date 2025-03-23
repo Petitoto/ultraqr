@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+
 	"github.com/sirupsen/logrus"
 	"github.com/skip2/go-qrcode"
 )
@@ -10,11 +12,30 @@ import (
 	given as parameter, and returns it as a
 	text-art string.
 */
-func generateQRCode(data string) (string) {
+func generateQRCode(data string, out string) (string) {
 	logrus.Debugf("QR code data: %s", data)
 	qr, err := qrcode.New(data, qrcode.Low)
 	if err != nil {
 		logrus.Fatal(err)
 	}
+
+	if (out != "") {
+		png, err := qr.PNG(256)
+		if err != nil {
+			logrus.Fatal(err)
+		}
+
+		fh, err := os.Create(out)
+		if err != nil {
+			logrus.Fatal(err)
+		}
+		defer fh.Close()
+
+		_, err = fh.Write(png)
+		if err != nil {
+			logrus.Fatal(err)
+		}
+	}
+
 	return qr.ToSmallString(false)
 }
