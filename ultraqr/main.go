@@ -20,7 +20,7 @@ var (
 	key_path   = flag.String("key", "/etc/ultraqr", "Path to store the signing key public and private TPM parts")
 	challenge  = flag.String("challenge", "", "Custom challenge to sign during verification")
 	pcrs_str   = flag.String("pcrs", "0,2,4,7,8,9", "Selected PCRs for the authorization policy")
-	out_img    = flag.String("out", "", "Optional output PNG file to save the generated QR code")
+	out_img    = flag.String("out", "", "Output filename to save the generated QR code as a png image (optional)")
 )
 
 func main() {
@@ -34,7 +34,10 @@ func main() {
 	tpm := OpenTPM(*device)
 	defer tpm.Close()
 
-	pcrs := ParsePCRs(*pcrs_str)
+	pcrs, err := ParsePCRs(*pcrs_str)
+	if err != nil {
+		Fatal(&tpm, "Invalid PCRs selection", err)
+	}
 
 	if *initialize {
 		logrus.Info("Generating a new signing key")
@@ -46,7 +49,10 @@ func main() {
 		cert := tpm.GetPubKey(tpm.LoadKey(*key_path, pcrs))
 
 		logrus.Info("Generating enrollment QR code")
-		qrcode := generateQRCode(cert, *out_img)
+		qrcode, err := generateQRCode(cert, *out_img)
+		if err != nil {
+			Fatal(&tpm, "Failed to generate QR code", err)
+		}
 		fmt.Print(qrcode)
 
 	} else if *verify {
@@ -71,7 +77,10 @@ func main() {
 		}
 
 		logrus.Info("Generating verification QR code")
-		qrcode := generateQRCode(data, *out_img)
+		qrcode, err := generateQRCode(data, *out_img)
+		if err != nil {
+			Fatal(&tpm, "Failed to generate QR code", err)
+		}
 		fmt.Print(qrcode)
 
 	} else {
