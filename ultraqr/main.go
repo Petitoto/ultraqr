@@ -19,6 +19,7 @@ var (
 	device     = flag.String("device", "/dev/tpm0", "Path to the TPM device to use")
 	key_path   = flag.String("key", "/etc/ultraqr", "Path to store the signing key public and private TPM parts")
 	challenge  = flag.String("challenge", "", "Custom challenge to sign during verification")
+	pcrs_str   = flag.String("pcrs", "0,2,4,7,8,9", "Selected PCRs for the authorization policy")
 )
 
 func main() {
@@ -31,15 +32,17 @@ func main() {
 	
 	tpm := OpenTPM(*device)
 	defer tpm.Close()
+	
+	pcrs := ParsePCRs(*pcrs_str)
 
 	if *initialize {
 		logrus.Info("Generating a new signing key")
-		tpm.CreateKey(*key_path)
+		tpm.CreateKey(*key_path, pcrs)
 		logrus.Info("New key generated and sealed to the TPM!")
 
 	} else if *enroll {
 		logrus.Info("Retrieving public key")
-		cert := tpm.GetPubKey(tpm.LoadKey(*key_path))
+		cert := tpm.GetPubKey(tpm.LoadKey(*key_path, pcrs))
 
 		logrus.Info("Generating enrollment QR code")
 		qrcode := generateQRCode(cert)
@@ -47,7 +50,7 @@ func main() {
 
 	} else if *verify {
 		logrus.Info("Unsealing signing key")
-		key := tpm.LoadKey(*key_path)
+		key := tpm.LoadKey(*key_path, pcrs)
 
 		var data string
 		if (*challenge == "") {

@@ -85,7 +85,7 @@ func (tpm *TPM) GetSRK() (tpm2.AuthHandle) {
 /*
 	Get a PCR policy digest for the selected PCRs
 */
-func (tpm *TPM) GetPCRPolicy() (tpm2.TPM2BDigest) {
+func (tpm *TPM) GetPCRPolicy(pcrs []uint) (tpm2.TPM2BDigest) {
 	sess, _, err := tpm2.PolicySession(tpm.t, tpm2.TPMAlgSHA256, 16, tpm2.Trial())
 	if err != nil {
 		Fatal(tpm, "Failed to create a policy session", err)
@@ -98,7 +98,7 @@ func (tpm *TPM) GetPCRPolicy() (tpm2.TPM2BDigest) {
 			PCRSelections: []tpm2.TPMSPCRSelection{
 				{
 					Hash:      tpm2.TPMAlgSHA256,
-					PCRSelect: tpm2.PCClientCompatible.PCRs(0,2,4,7,8,9),
+					PCRSelect: tpm2.PCClientCompatible.PCRs(pcrs...),
 				},
 			},
 		},
@@ -128,7 +128,7 @@ func (tpm *TPM) GetPCRPolicy() (tpm2.TPM2BDigest) {
 /*
 	Get a PCR policy authorization session for the selected PCRs
 */
-func (tpm *TPM) GetPCRAuth() (tpm2.Session) {
+func (tpm *TPM) GetPCRAuth(pcrs []uint) (tpm2.Session) {
 	sess, _, err := tpm2.PolicySession(tpm.t, tpm2.TPMAlgSHA256, 16, []tpm2.AuthOption{}...)
 	if err != nil {
 		Fatal(tpm, "Failed to create a policy session", err)
@@ -141,7 +141,7 @@ func (tpm *TPM) GetPCRAuth() (tpm2.Session) {
 			PCRSelections: []tpm2.TPMSPCRSelection{
 				{
 					Hash:      tpm2.TPMAlgSHA256,
-					PCRSelect: tpm2.PCClientCompatible.PCRs(0,2,4,7,8,9),
+					PCRSelect: tpm2.PCClientCompatible.PCRs(pcrs...),
 				},
 			},
 		},
@@ -158,11 +158,11 @@ func (tpm *TPM) GetPCRAuth() (tpm2.Session) {
 	and store its public and private parts.
 	Overwrite existing files.
 */
-func (tpm *TPM) CreateKey(key_path string) {
+func (tpm *TPM) CreateKey(key_path string, pcrs []uint) {
 	var priv, pub []byte
 	srk := tpm.GetSRK()
 
-	policy := tpm.GetPCRPolicy()
+	policy := tpm.GetPCRPolicy(pcrs)
 
 	key, err := tpm2.Create{
 		ParentHandle: srk,
@@ -227,7 +227,7 @@ func (tpm *TPM) CreateKey(key_path string) {
 	Add an authorization session to the key to comply with the PCR policy.
 	Return a handle to the loaded key.
 */
-func (tpm *TPM) LoadKey(key_path string) (tpm2.AuthHandle) {
+func (tpm *TPM) LoadKey(key_path string, pcrs []uint) (tpm2.AuthHandle) {
 	var priv, pub []byte
 	var err error
 
@@ -253,7 +253,7 @@ func (tpm *TPM) LoadKey(key_path string) (tpm2.AuthHandle) {
 	logrus.Debugf("Loaded key at 0x%x", key.ObjectHandle)
 	tpm.handles = append(tpm.handles, key.ObjectHandle)
 
-	auth := tpm.GetPCRAuth()
+	auth := tpm.GetPCRAuth(pcrs)
 	logrus.Debugf("Loaded authorization session")
 
 	return tpm2.AuthHandle{
