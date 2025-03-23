@@ -98,7 +98,7 @@ func (tpm *TPM) GetPCRPolicy() (tpm2.TPM2BDigest) {
 			PCRSelections: []tpm2.TPMSPCRSelection{
 				{
 					Hash:      tpm2.TPMAlgSHA256,
-					PCRSelect: tpm2.PCClientCompatible.PCRs(0,2,4,8,9),
+					PCRSelect: tpm2.PCClientCompatible.PCRs(0,2,4,7,8,9),
 				},
 			},
 		},
@@ -141,7 +141,7 @@ func (tpm *TPM) GetPCRAuth() (tpm2.Session) {
 			PCRSelections: []tpm2.TPMSPCRSelection{
 				{
 					Hash:      tpm2.TPMAlgSHA256,
-					PCRSelect: tpm2.PCClientCompatible.PCRs(0,2,4,8,9),
+					PCRSelect: tpm2.PCClientCompatible.PCRs(0,2,4,7,8,9),
 				},
 			},
 		},
