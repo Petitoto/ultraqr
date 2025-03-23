@@ -59,14 +59,14 @@ func main() {
 
 			timestamp := time.Now().Unix()
 			signature := tpm.SignData(big.NewInt(timestamp).Bytes(), key)
-			data = fmt.Sprintf(`{"c":"%d","s":"%s"}`, timestamp,
+			data = fmt.Sprintf(`{"t":"%d","s":"%s"}`, timestamp,
 								base64.StdEncoding.EncodeToString(signature))
 
 		} else {
 			logrus.Info("Signing provided challenge")
 
 			signature := tpm.SignData([]byte(*challenge), key)
-			data = fmt.Sprintf(`{"t":"%s","s":"%s"}`, challenge,
+			data = fmt.Sprintf(`{"c":"%s","s":"%s"}`, *challenge,
 								base64.StdEncoding.EncodeToString(signature))
 		}
 
