@@ -61,10 +61,8 @@ func (tpm *TPM) Close() () {
 }
 
 /*
-	Returns a handle to the TPM Storage Rook Key (SRK).
-	Create primary each time, to avoid dealing with TPM NVRAM.
-	Primary seeds ensure that the created SRK will always
-	be the same for same SRK template on the same TPM.
+	Returns a handle to the TPM SRK in the "Owner" hierarchy
+	(ECC SRK default template)
 */
 func (tpm *TPM) GetSRK() (tpm2.AuthHandle) {
 	srk, err := tpm2.CreatePrimary{
@@ -85,14 +83,86 @@ func (tpm *TPM) GetSRK() (tpm2.AuthHandle) {
 }
 
 /*
-	Create a signing key (ECC), seal it to the TPM
-	following a policy matching the selected PCRs,
-	and store its public and (sealed) private parts
-	into two files. Overwrite existing files.
+	Get a PCR policy digest for the selected PCRs
+*/
+func (tpm *TPM) GetPCRPolicy() (tpm2.TPM2BDigest) {
+	sess, _, err := tpm2.PolicySession(tpm.t, tpm2.TPMAlgSHA256, 16, tpm2.Trial())
+	if err != nil {
+		Fatal(tpm, "Failed to create a policy session", err)
+	}
+	tpm.handles = append(tpm.handles, sess.Handle())
+
+	_, err = tpm2.PolicyPCR{
+		PolicySession: sess.Handle(),
+		Pcrs: tpm2.TPMLPCRSelection{
+			PCRSelections: []tpm2.TPMSPCRSelection{
+				{
+					Hash:      tpm2.TPMAlgSHA256,
+					PCRSelect: tpm2.PCClientCompatible.PCRs(0,2,4,8,9),
+				},
+			},
+		},
+	}.Execute(tpm.t)
+	if err != nil {
+		Fatal(tpm, "Failed to create a PCR policy", err)
+	}
+
+	pgd, err := tpm2.PolicyGetDigest{
+		PolicySession: sess.Handle(),
+	}.Execute(tpm.t)
+	if err != nil {
+		Fatal(tpm, "Failed to get PCR policy digest", err)
+	}
+
+	_, err = tpm2.FlushContext{FlushHandle: sess.Handle()}.Execute(tpm.t)
+	if err != nil {
+		Fatal(tpm, "Failed to flush PCR policy context", err)
+	}
+
+	policy := pgd.PolicyDigest
+
+	logrus.Debugf("PCR policy digest: %x", policy.Buffer)
+	return policy
+}
+
+/*
+	Get a PCR policy authorization session for the selected PCRs
+*/
+func (tpm *TPM) GetPCRAuth() (tpm2.Session) {
+	sess, _, err := tpm2.PolicySession(tpm.t, tpm2.TPMAlgSHA256, 16, []tpm2.AuthOption{}...)
+	if err != nil {
+		Fatal(tpm, "Failed to create a policy session", err)
+	}
+	tpm.handles = append(tpm.handles, sess.Handle())
+
+	_, err = tpm2.PolicyPCR{
+		PolicySession: sess.Handle(),
+		Pcrs: tpm2.TPMLPCRSelection{
+			PCRSelections: []tpm2.TPMSPCRSelection{
+				{
+					Hash:      tpm2.TPMAlgSHA256,
+					PCRSelect: tpm2.PCClientCompatible.PCRs(0,2,4,8,9),
+				},
+			},
+		},
+	}.Execute(tpm.t)
+	if err != nil {
+		Fatal(tpm, "Failed to create a PCR policy", err)
+	}
+	
+	return sess
+}
+
+/*
+	Create a signing key (ECC), bind it to a PCR policy,
+	and store its public and private parts.
+	Overwrite existing files.
 */
 func (tpm *TPM) CreateKey() {
 	var priv, pub []byte
 	srk := tpm.GetSRK()
+
+	policy := tpm.GetPCRPolicy()
 
 	key, err := tpm2.Create{
 		ParentHandle: srk,
@@ -103,9 +173,10 @@ func (tpm *TPM) CreateKey() {
 				FixedTPM:            true,
 				FixedParent:         true,
 				SensitiveDataOrigin: true,
-				UserWithAuth:        true,
+				UserWithAuth:        false,
 				SignEncrypt:         true,
 			},
+			AuthPolicy: policy,
 			Parameters: tpm2.NewTPMUPublicParms(
 				tpm2.TPMAlgECC,
 				&tpm2.TPMSECCParms{
@@ -122,14 +193,6 @@ func (tpm *TPM) CreateKey() {
 				},
 			),
 		}),
-		CreationPCR: tpm2.TPMLPCRSelection{
-			PCRSelections: []tpm2.TPMSPCRSelection{
-				{
-					Hash:      tpm2.TPMAlgSHA256,
-					PCRSelect: tpm2.PCClientCompatible.PCRs(0,2,4,8,9),
-				},
-			},
-		},
 	}.Execute(tpm.t)
 	if err != nil {
 		Fatal(tpm, "Failed to create a new key", err)
@@ -160,11 +223,11 @@ func (tpm *TPM) CreateKey() {
 }
 
 /*
-	Load key to the TPM from the saved
-	public and private key files.
+	Load key to the TPM from the saved public and private key files.
+	Add an authorization session to the key to comply with the PCR policy.
 	Return a handle to the loaded key.
 */
-func (tpm *TPM) LoadKey() (tpm2.NamedHandle) {
+func (tpm *TPM) LoadKey() (tpm2.AuthHandle) {
 	var priv, pub []byte
 	var err error
 
@@ -188,17 +251,22 @@ func (tpm *TPM) LoadKey() (tpm2.NamedHandle) {
 	}
 
 	logrus.Debugf("Loaded key at 0x%x", key.ObjectHandle)
-	tpm.handles = append(tpm.handles, key.ObjectHandle)	
-	return tpm2.NamedHandle{
+	tpm.handles = append(tpm.handles, key.ObjectHandle)
+
+	auth := tpm.GetPCRAuth()
+	logrus.Debugf("Loaded authorization session")
+
+	return tpm2.AuthHandle{
 		Handle: key.ObjectHandle,
 		Name:   key.Name,
+		Auth:   auth,
 	}
 }
 
 /*
 	Export the loaded public key to base64 DER format
 */
-func (tpm *TPM) GetPubKey(hkey tpm2.NamedHandle) (string) {
+func (tpm *TPM) GetPubKey(hkey tpm2.AuthHandle) (string) {
 	pub, err := tpm2.ReadPublic{
 		ObjectHandle: hkey.Handle,
 	}.Execute(tpm.t)
@@ -242,10 +310,10 @@ func (tpm *TPM) GetPubKey(hkey tpm2.NamedHandle) (string) {
 /*
 	Sign binary data using the loaded signing key.
 */
-func (tpm *TPM) SignData(data []byte, hkey tpm2.NamedHandle) ([]byte) {
+func (tpm *TPM) SignData(data []byte, hkey tpm2.AuthHandle) ([]byte) {
 	digest := sha256.Sum256(data)
-
 	logrus.Debugf("Hashed data: %x", digest)
+
 	sig, err := tpm2.Sign{
 		KeyHandle: hkey,
 		Digest: tpm2.TPM2BDigest{
