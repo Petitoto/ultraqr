@@ -114,15 +114,8 @@ func (tpm *TPM) GetPCRPolicy(pcrs []uint) (tpm2.TPM2BDigest) {
 		Fatal(tpm, "Failed to get PCR policy digest", err)
 	}
 
-	_, err = tpm2.FlushContext{FlushHandle: sess.Handle()}.Execute(tpm.t)
-	if err != nil {
-		Fatal(tpm, "Failed to flush PCR policy context", err)
-	}
-
-	policy := pgd.PolicyDigest
-
-	logrus.Debugf("PCR policy digest: %x", policy.Buffer)
-	return policy
+	logrus.Debugf("PCR policy digest: %x", pgd.PolicyDigest.Buffer)
+	return pgd.PolicyDigest
 }
 
 /*
