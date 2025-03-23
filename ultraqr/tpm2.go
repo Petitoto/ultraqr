@@ -142,7 +142,8 @@ func (tpm *TPM) GetPCRAuth(pcrs []uint) (tpm2.Session) {
 	if err != nil {
 		Fatal(tpm, "Failed to create a PCR policy", err)
 	}
-	
+
+	logrus.Debugf("Created a PCR policy authorization session at 0x%x", sess.Handle())
 	return sess
 }
 

@@ -30,10 +30,10 @@ func main() {
 	} else {
 		logrus.SetLevel(logrus.InfoLevel)
 	}
-	
+
 	tpm := OpenTPM(*device)
 	defer tpm.Close()
-	
+
 	pcrs := ParsePCRs(*pcrs_str)
 
 	if *initialize {

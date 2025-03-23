@@ -21,5 +21,7 @@ func ParsePCRs(s string) []uint {
 			pcrs = append(pcrs, uint(pcr))
 		}
 	}
+
+	logrus.Debugf("Using the following PCRs: %s", s)
 	return pcrs
 }

@@ -35,6 +35,8 @@ func generateQRCode(data string, out string) (string) {
 		if err != nil {
 			logrus.Fatal(err)
 		}
+
+		logrus.Debugf("Saved QR code data to: %s", out)
 	}
 
 	return qr.ToSmallString(false)
