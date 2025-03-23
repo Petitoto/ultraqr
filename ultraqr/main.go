@@ -18,7 +18,7 @@ var (
 	verbose    = flag.Bool("verbose", false, "Use verbose logging")
 	device     = flag.String("device", "/dev/tpm0", "Path to the TPM device to use")
 	key_path   = flag.String("key", "/etc/ultraqr", "Path to store the signing key public and private TPM parts")
-	challenge  = flag.String("challenge", "", "Custom challenge to sign during verification")
+	challenge  = flag.String("challenge", "", "Custom challenge to sign during verification (optional)")
 	pcrs_str   = flag.String("pcrs", "0,2,4,7,8,9", "Selected PCRs for the authorization policy")
 	out_img    = flag.String("out", "", "Output filename to save the generated QR code as a png image (optional)")
 )
@@ -42,7 +42,7 @@ func main() {
 	if *initialize {
 		logrus.Info("Generating a new signing key")
 		tpm.CreateKey(*key_path, pcrs)
-		logrus.Info("New key generated and sealed to the TPM!")
+		logrus.Info("New key generated and bound to a PCR policy")
 
 	} else if *enroll {
 		logrus.Info("Retrieving public key")
@@ -56,7 +56,7 @@ func main() {
 		fmt.Print(qrcode)
 
 	} else if *verify {
-		logrus.Info("Unsealing signing key")
+		logrus.Info("Loading signing key")
 		key := tpm.LoadKey(*key_path, pcrs)
 
 		var data string
