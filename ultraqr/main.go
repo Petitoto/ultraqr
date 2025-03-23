@@ -18,6 +18,7 @@ var (
 	verbose    = flag.Bool("verbose", false, "Use verbose logging")
 	device     = flag.String("device", "/dev/tpm0", "Path to the TPM device to use")
 	key_path   = flag.String("key", "/etc/ultraqr", "Path to store the signing key public and private TPM parts")
+	challenge  = flag.String("challenge", "", "Custom challenge to sign during verification")
 )
 
 func main() {
@@ -48,11 +49,22 @@ func main() {
 		logrus.Info("Unsealing signing key")
 		key := tpm.LoadKey(*key_path)
 
-		logrus.Info("Signing current timestamp")
-		timestamp := time.Now().Unix()
-		signature := tpm.SignData(big.NewInt(timestamp).Bytes(), key)
-		data := fmt.Sprintf(`{"t":"%d","s":"%s"}`, timestamp,
-							base64.StdEncoding.EncodeToString(signature))
+		var data string
+		if (*challenge == "") {
+			logrus.Info("Signing current timestamp")
+
+			timestamp := time.Now().Unix()
+			signature := tpm.SignData(big.NewInt(timestamp).Bytes(), key)
+			data = fmt.Sprintf(`{"c":"%d","s":"%s"}`, timestamp,
+								base64.StdEncoding.EncodeToString(signature))
+
+		} else {
+			logrus.Info("Signing provided challenge")
+
+			signature := tpm.SignData([]byte(*challenge), key)
+			data = fmt.Sprintf(`{"t":"%s","s":"%s"}`, challenge,
+								base64.StdEncoding.EncodeToString(signature))
+		}
 
 		logrus.Info("Generating verification QR code")
 		qrcode := generateQRCode(data)
