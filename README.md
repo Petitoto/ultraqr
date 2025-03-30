@@ -30,6 +30,7 @@ To attest that the PCR values match those at initialization, you MUST:
 
 ### Advanced usage
 - If the `-challenge` parameter is specified during verification, the verification process will sign the provided challenge instead of the current timestamp. Using robust challenges is recommended if the device may have been compromised in the past while the PCRs were in expected states (as the attacker may have satisfied the PCR authorization policy in order to sign arbitrary timestamps for a future bootchain compromise).
+- UltraQR is designed to be run from initramfs, to allow the user to verify the boot integrity before providing a decryption password. See [initramfs.md](initramfs.md) for installation instructions.
 
 ### Command references
 ```
